@@ -61,7 +61,7 @@ export const updateProfile = async (
       throw createError('User not authenticated', 401);
     }
 
-    const { name, email } = req.body;
+    const { name, last_name, age, email } = req.body;
     const db = getFirestoreInstance();
     const auth = getAuthInstance();
 
@@ -69,12 +69,37 @@ export const updateProfile = async (
       updatedAt: new Date().toISOString(),
     };
 
+    // Actualizar name
     if (name) {
       updateData.name = name;
-      // Update display name in Firebase Auth
-      await auth.updateUser(userId, { displayName: name });
     }
 
+    // Actualizar last_name
+    if (last_name) {
+      updateData.last_name = last_name;
+    }
+
+    // Actualizar displayName en Firebase Auth si cambian name o last_name
+    if (name || last_name) {
+      const userDoc = await db.collection('users').doc(userId).get();
+      const userData = userDoc.data();
+      const newname = name || userData?.name || '';
+      const newlast_name = last_name || userData?.last_name || '';
+      await auth.updateUser(userId, { 
+        displayName: `${newname} ${newlast_name}` 
+      });
+    }
+
+    // Actualizar age
+    if (age !== undefined) {
+      const ageNum = parseInt(age);
+      if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
+        throw createError('La edad debe ser un número válido entre 1 y 120', 400);
+      }
+      updateData.age = ageNum;
+    }
+
+    // Actualizar email
     if (email) {
       updateData.email = email;
       // Update email in Firebase Auth
@@ -87,7 +112,7 @@ export const updateProfile = async (
 
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully',
+      message: 'Perfil actualizado exitosamente',
       data: {
         id: updatedUser.id,
         ...updatedUser.data(),
@@ -97,9 +122,11 @@ export const updateProfile = async (
     if (error.statusCode) {
       next(error);
     } else if (error.code === 'auth/email-already-exists') {
-      next(createError('Email already in use', 409));
+      next(createError('El correo ya está en uso', 409));
+    } else if (error.code === 'auth/invalid-email') {
+      next(createError('El correo electrónico no es válido', 400));
     } else {
-      next(createError('Error updating profile', 500));
+      next(createError('Error al actualizar el perfil', 500));
     }
   }
 };

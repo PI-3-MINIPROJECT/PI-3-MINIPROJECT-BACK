@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { initializeFirebase } from './config/firebase';
 import { initializeSocketIO } from './config/socket';
@@ -49,9 +50,12 @@ class App {
     this.app.use(
       cors({
         origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-        credentials: true,
+        credentials: true, // Permitir envío de cookies
       })
     );
+
+    // Cookie parser
+    this.app.use(cookieParser());
 
     // Body parser
     this.app.use(express.json());

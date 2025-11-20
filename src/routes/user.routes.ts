@@ -24,8 +24,29 @@ router.get('/profile', userController.getProfile);
 router.put(
   '/profile',
   [
-    body('name').optional().trim().notEmpty(),
-    body('email').optional().isEmail().normalizeEmail(),
+    body('name')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Los nombres no pueden estar vacíos')
+      .isLength({ min: 2, max: 50 })
+      .withMessage('Los nombres deben tener entre 2 y 50 caracteres'),
+    body('last_name')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Los apellidos no pueden estar vacíos')
+      .isLength({ min: 2, max: 50 })
+      .withMessage('Los apellidos deben tener entre 2 y 50 caracteres'),
+    body('age')
+      .optional()
+      .isInt({ min: 1, max: 120 })
+      .withMessage('La edad debe ser un número entre 1 y 120'),
+    body('email')
+      .optional()
+      .isEmail()
+      .normalizeEmail()
+      .withMessage('Debe proporcionar un correo electrónico válido'),
   ],
   validateRequest,
   userController.updateProfile

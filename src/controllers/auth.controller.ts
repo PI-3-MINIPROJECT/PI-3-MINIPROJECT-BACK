@@ -14,16 +14,22 @@ export const register = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, last_name, age } = req.body;
 
     const auth = getAuthInstance();
     const db = getFirestoreInstance();
+
+    // Validar edad
+    const ageNum = parseInt(age);
+    if (isNaN(ageNum) || ageNum < 1 || ageNum > 120) {
+      return next(createError('La edad debe ser un número válido entre 1 y 120', 400));
+    }
 
     // Create user in Firebase Auth
     const userRecord = await auth.createUser({
       email,
       password,
-      displayName: name,
+      displayName: `${name} ${last_name}`,
     });
 
     // Create user document in Firestore
@@ -31,32 +37,45 @@ export const register = async (
       uid: userRecord.uid,
       email,
       name,
+      last_name,
+      age: ageNum,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'Usuario registrado exitosamente',
       data: {
         uid: userRecord.uid,
         email: userRecord.email,
-        name: userRecord.displayName,
+        name,
+        last_name,
+        age: ageNum,
       },
     });
   } catch (error: any) {
     console.error("🔥 Firebase error:", error);
 
     if (error.code === 'auth/email-already-exists') {
-      return next(createError('Email already registered', 409));
+      return next(createError('El correo ya está registrado', 409));
     }
 
-    return next(createError(error.message || 'Error registering user', 500));
+    if (error.code === 'auth/invalid-email') {
+      return next(createError('El correo electrónico no es válido', 400));
+    }
+
+    if (error.code === 'auth/weak-password') {
+      return next(createError('La contraseña debe tener al menos 6 caracteres', 400));
+    }
+
+    return next(createError(error.message || 'Error al registrar usuario', 500));
 }
 };
 
 /**
- * Login user
+ * Login user with email and password
+ * Creates a session cookie for authentication
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
@@ -67,141 +86,150 @@ export const login = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { email, password, idToken } = req.body as {
-      email?: string;
-      password?: string;
-      idToken?: string;
-    };
+    const { email, password } = req.body;
+
+    // Validar que se proporcionen email y password
+    if (!email || !password) {
+      return next(createError('Email y contraseña son requeridos', 400));
+    }
 
     const auth = getAuthInstance();
+    const db = getFirestoreInstance();
+    const apiKey = process.env.FIREBASE_API_KEY;
 
-    // Preferred: client provides an ID token — verify it server-side
-    if (typeof idToken === 'string' && idToken.trim()) {
-      try {
-        const decoded = await auth.verifyIdToken(idToken);
-        const userRecord = await auth.getUser(decoded.uid);
-
-        res.status(200).json({
-          success: true,
-          message: 'Token verified',
-          data: {
-            uid: userRecord.uid,
-            email: userRecord.email,
-            name: userRecord.displayName,
-          },
-        });
-        return;
-      } catch (err: any) {
-        // token invalid / expired
-        return next(createError('Invalid or expired ID token', 401));
-      }
+    if (!apiKey) {
+      return next(createError('Configuración del servidor incorrecta', 500));
     }
 
-    // Fallback: server-side email/password sign-in via Firebase REST API
-    if (typeof email === 'string' && typeof password === 'string') {
-      const apiKey = process.env.FIREBASE_API_KEY;
-      if (!apiKey) return next(createError('Server missing FIREBASE_API_KEY', 500));
+    // Autenticar con Firebase usando REST API
+    const resp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          returnSecureToken: true,
+        }),
+      }
+    );
 
-      const resp = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email,
-            password,
-            returnSecureToken: true,
-          }),
-        }
-      );
+    const data: any = await resp.json().catch(() => ({}));
 
-      const data: any = await resp.json().catch(() => ({}));
-
-      if (!resp.ok) {
-        const errMsg: string = data?.error?.message || 'Authentication failed';
-        const authErrors = ['EMAIL_NOT_FOUND', 'INVALID_PASSWORD', 'USER_DISABLED'];
-        const status = authErrors.includes(errMsg) ? 401 : 400;
-        return next(createError(errMsg, status));
+    if (!resp.ok) {
+      const errMsg: string = data?.error?.message || 'Autenticación fallida';
+      let friendlyMessage = 'Error de autenticación';
+      
+      if (errMsg === 'EMAIL_NOT_FOUND') {
+        friendlyMessage = 'Usuario no encontrado';
+      } else if (errMsg === 'INVALID_PASSWORD') {
+        friendlyMessage = 'Contraseña incorrecta';
+      } else if (errMsg === 'USER_DISABLED') {
+        friendlyMessage = 'Usuario deshabilitado';
+      } else if (errMsg === 'INVALID_LOGIN_CREDENTIALS') {
+        friendlyMessage = 'Credenciales de inicio de sesión inválidas';
       }
 
-      // Successful sign-in: return tokens (client should store securely)
-      res.status(200).json({
-        success: true,
-        message: 'Login successful',
-        data: {
-          uid: data.localId,
-          email: data.email,
-          idToken: data.idToken,
-          refreshToken: data.refreshToken,
-          expiresIn: data.expiresIn,
-        },
-      });
-      return;
+      return next(createError(friendlyMessage, 401));
     }
 
-    return next(createError('Provide idToken or email and password', 400));
+    const idToken = data.idToken;
+    const uid = data.localId;
+
+    // Obtener datos del usuario de Firestore
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+
+    // Configurar duración de la cookie de sesión (5 días)
+    const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 días en milisegundos
+
+    // Crear session cookie con Firebase Admin
+    const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn });
+
+    // Configurar opciones de la cookie
+    const cookieOptions = {
+      maxAge: expiresIn,
+      httpOnly: true, // No accesible desde JavaScript (protege contra XSS)
+      secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción
+      sameSite: 'lax' as const, // Protección CSRF
+      path: '/',
+    };
+
+    // Establecer la cookie de sesión
+    res.cookie('session', sessionCookie, cookieOptions);
+
+    // Responder con datos del usuario
+    res.status(200).json({
+      success: true,
+      message: 'Inicio de sesión exitoso',
+      data: {
+        uid: uid,
+        email: data.email,
+        name: userData?.name,
+        last_name: userData?.last_name,
+        age: userData?.age,
+      },
+    });
   } catch (error: any) {
-    console.error('Login error:', error);
-    return next(createError(error?.message || 'Error during login', 500));
+    console.error('Error en login:', error);
+    return next(createError(error?.message || 'Error durante el inicio de sesión', 500));
   }
 };
 
 /**
- * Logout user
+ * Logout user - clears session cookie
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
  */
-// ...existing code...
 export const logout = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { idToken, uid } = req.body as { idToken?: string; uid?: string };
-    const auth = getAuthInstance();
+    const sessionCookie = req.cookies.session;
 
-    // Determine target UID: prefer explicit uid, otherwise verify provided idToken
-    let targetUid = uid;
-    if (!targetUid) {
-      if (typeof idToken !== 'string' || !idToken.trim()) {
-        return next(createError('Provide idToken or uid to logout', 400));
-      }
-      try {
-        const decoded = await auth.verifyIdToken(idToken);
-        targetUid = decoded.uid;
-      } catch (err: any) {
-        return next(createError('Invalid or expired ID token', 401));
-      }
+    if (!sessionCookie) {
+      return next(createError('No hay sesión activa', 400));
     }
 
-    // Revoke refresh tokens so existing sessions are invalidated
-    await auth.revokeRefreshTokens(targetUid);
+    const auth = getAuthInstance();
 
-    // Optionally clear session cookie if your app uses one
-    try {
-      res.clearCookie && res.clearCookie('session'); // no-op if not used
-    } catch {}
+    // Verificar y obtener el UID del usuario
+    const decodedClaims = await auth.verifySessionCookie(sessionCookie);
+    const uid = decodedClaims.uid;
 
-    const userRecord = await auth.getUser(targetUid);
+    // Revocar todos los refresh tokens del usuario
+    await auth.revokeRefreshTokens(uid);
+
+    // Limpiar la cookie de sesión
+    res.clearCookie('session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
 
     res.status(200).json({
       success: true,
-      message: 'Logout successful — refresh tokens revoked',
-      data: {
-        uid: userRecord.uid,
-        email: userRecord.email,
-        // tokensValidAfterTime is a string timestamp set when tokens were revoked
-        tokensValidAfterTime: userRecord.tokensValidAfterTime,
-      },
+      message: 'Cierre de sesión exitoso',
     });
   } catch (error: any) {
-    console.error('Logout error:', error);
-    return next(createError(error?.message || 'Error during logout', 500));
+    console.error('Error en logout:', error);
+    
+    // Limpiar la cookie incluso si hay error
+    res.clearCookie('session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    return next(createError(error?.message || 'Error durante el cierre de sesión', 500));
   }
 };
-// ...existing code...
 
 /**
  * Request password reset
@@ -246,7 +274,7 @@ export const resetPassword = async (
  * @param {NextFunction} next - Express next function
  */
 export const googleOAuth = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -270,7 +298,7 @@ export const googleOAuth = async (
  * @param {NextFunction} next - Express next function
  */
 export const githubOAuth = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
