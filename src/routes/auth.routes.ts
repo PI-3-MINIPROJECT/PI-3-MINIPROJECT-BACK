@@ -85,14 +85,14 @@ router.post(
  * @desc    OAuth login with Google
  * @access  Public
  */
-router.post('/oauth/google', authController.googleOAuth);
+router.get('/oauth/google', authController.googleOAuth);
 
 /**
  * @route   POST /api/auth/oauth/github
  * @desc    OAuth login with GitHub
  * @access  Public
  */
-router.post('/oauth/github', authController.githubOAuth);
+router.post('/oauth/github', authController.facebookOAuth);
 
 export default router;
 

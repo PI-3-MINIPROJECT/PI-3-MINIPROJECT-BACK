@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { getAuthInstance, getFirestoreInstance } from '../config/firebase';
 import { createError } from '../middlewares/errorHandler';
+import { OAuth2Client } from 'google-auth-library';
 
 /**
  * Register a new user
@@ -142,7 +143,7 @@ export const login = async (
     const userData = userDoc.data();
 
     // Configurar duración de la cookie de sesión (5 días)
-    const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 días en milisegundos
+    const expiresIn = Number(process.env.SESSION_COOKIE_EXPIRES_IN_MS) || 5 * 24 * 60 * 60 * 1000;
 
     // Crear session cookie con Firebase Admin
     const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn });
@@ -151,7 +152,8 @@ export const login = async (
     const cookieOptions = {
       maxAge: expiresIn,
       httpOnly: true, // No accesible desde JavaScript (protege contra XSS)
-      secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción
+      //secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción
+      secure: false,
       sameSite: 'lax' as const, // Protección CSRF
       path: '/',
     };
@@ -207,7 +209,8 @@ export const logout = async (
     // Limpiar la cookie de sesión
     res.clearCookie('session', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      //secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'lax',
       path: '/',
     });
@@ -222,7 +225,8 @@ export const logout = async (
     // Limpiar la cookie incluso si hay error
     res.clearCookie('session', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      //secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'lax',
       path: '/',
     });
@@ -274,20 +278,174 @@ export const resetPassword = async (
  * @param {NextFunction} next - Express next function
  */
 export const googleOAuth = async (
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
+  /**
+   * Server-side Google OAuth flow:
+   * - If no "code" query param: generate Google consent URL and redirect user.
+   * - If "code" present: exchange code for tokens, get Google profile,
+   *   create or fetch Firebase user, mint Firebase custom token, exchange for idToken,
+   *   create session cookie and set it, then redirect (or return JSON).
+   *
+   * Required env:
+   * - GOOGLE_CLIENT_ID
+   * - GOOGLE_CLIENT_SECRET
+   * - OAUTH_CALLBACK_URL (this endpoint URL)
+   * - FIREBASE_API_KEY
+   * - FRONTEND_URL (optional; where to redirect after success/failure)
+   */
   try {
-    // OAuth is typically handled on the client side with Firebase Auth
-    // This endpoint can be used for server-side verification or user creation
-    
-    res.status(200).json({
-      success: true,
-      message: 'Google OAuth should be handled on client side with Firebase Auth',
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = process.env.OAUTH_CALLBACK_URL; // should point to this handler
+    const apiKey = process.env.FIREBASE_API_KEY;
+    const frontend = process.env.FRONTEND_URL || '/';
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      return next(createError('Google OAuth not configured on server', 500));
+    }
+
+    const oauth2Client = new OAuth2Client({
+      clientId,
+      clientSecret,
+      redirectUri,
     });
+
+    // If no code -> start flow by redirecting to Google's consent page
+    const code = (req.query.code as string) || undefined;
+    if (!code) {
+      const authUrl = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        prompt: 'consent',
+        scope: ['openid', 'profile', 'email'],
+      });
+      res.redirect(authUrl);
+      return;
+    }
+
+    // Exchange code for tokens
+    const { tokens } = await oauth2Client.getToken(code);
+    const idToken = tokens.id_token;
+    if (!idToken) {
+      return next(createError('Failed to obtain id_token from Google', 500));
+    }
+
+    // Verify id_token and get Google profile
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken,
+      audience: clientId,
+    });
+    const payload = ticket.getPayload();
+    if (!payload || !payload.sub || !payload.email) {
+      return next(createError('Failed to verify Google id token', 500));
+    }
+
+    const googleId = payload.sub;
+    const email = payload.email;
+    const displayName = payload.name;
+    const photoURL = payload.picture;
+    const uid = `google:${googleId}`;
+
+    const auth = getAuthInstance();
+    const db = getFirestoreInstance();
+
+    // Create or get firebase user
+    try {
+      await auth.getUser(uid);
+    } catch (err: any) {
+      // If user not found, try to create; on failure try to get by email
+      if (err?.code === 'auth/user-not-found') {
+        try {
+          // Prefer to create a stable UID based on provider to avoid collisions
+          await auth.createUser({
+            uid,
+            email,
+            displayName,
+            photoURL,
+            emailVerified: true,
+          });
+
+          // create a basic user document in Firestore
+          await db.collection('users').doc(uid).set({
+            uid,
+            email,
+            name: displayName,
+            last_name: '',
+            age: null,
+            provider: 'google',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (createErr: any) {
+          // If UID already exists or other issue, try to fallback to getUserByEmail
+          try {
+            await auth.getUserByEmail(email);
+          } catch {
+            return next(createError('Error creating or fetching Firebase user', 500));
+          }
+        }
+      } else {
+        return next(createError('Error fetching Firebase user', 500));
+      }
+    }
+
+    // Create a Firebase custom token for this uid
+    const customToken = await auth.createCustomToken(uid);
+
+    if (!apiKey) {
+      return next(createError('Missing FIREBASE_API_KEY for token exchange', 500));
+    }
+
+    // Exchange custom token for idToken via Firebase REST API (server-side)
+    const signInResp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+      }
+    );
+
+    const signInData: any = await signInResp.json().catch(() => ({}));
+    if (!signInResp.ok || !signInData.idToken) {
+      console.error('Failed exchange custom token:', signInData);
+      return next(createError('Failed to sign in with custom token', 500));
+    }
+
+    const firebaseIdToken = signInData.idToken;
+
+    // Create session cookie
+    const expiresIn = Number(process.env.SESSION_COOKIE_EXPIRES_IN_MS) || 5 * 24 * 60 * 60 * 1000;
+    // Crear session cookie con Firebase Admin
+    const sessionCookie = await auth.createSessionCookie(firebaseIdToken, { expiresIn });
+
+    // Configurar opciones de la cookie
+    const cookieOptions = {
+      maxAge: expiresIn,
+      httpOnly: true, // No accesible desde JavaScript (protege contra XSS)
+      //secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción
+      secure: false,
+      sameSite: 'lax' as const, // Protección CSRF
+      path: '/',
+    };
+
+    // Establecer la cookie de sesión
+    res.cookie('session', sessionCookie, cookieOptions);
+
+    // Redirect to frontend (could attach a success flag)
+    res.redirect(frontend);
+    return;
   } catch (error: any) {
-    next(createError('Error during Google OAuth', 500));
+    console.error('Google OAuth error:', error);
+    // On error, attempt to redirect to frontend with an error query param (avoid exposing details)
+    const frontend = process.env.FRONTEND_URL || '/';
+    try {
+      res.redirect(`${frontend}?oauth_error=1`);
+    } catch {
+      return next(createError(error?.message || 'Error during Google OAuth', 500));
+    }
   }
 };
 
@@ -297,7 +455,7 @@ export const googleOAuth = async (
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
  */
-export const githubOAuth = async (
+export const facebookOAuth = async (
   _req: Request,
   res: Response,
   next: NextFunction
@@ -308,10 +466,10 @@ export const githubOAuth = async (
     
     res.status(200).json({
       success: true,
-      message: 'GitHub OAuth should be handled on client side with Firebase Auth',
+      message: 'Facebook OAuth should be handled on client side with Firebase Auth',
     });
   } catch (error: any) {
-    next(createError('Error during GitHub OAuth', 500));
+    next(createError('Error during Facebook OAuth', 500));
   }
 };
 

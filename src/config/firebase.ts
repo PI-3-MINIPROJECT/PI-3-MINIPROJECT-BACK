@@ -29,10 +29,6 @@ export const initializeFirebase = (): admin.app.App => {
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   });
 
-  console.log("Bucket: " + process.env.FIREBASE_STORAGE_BUCKET);
-  console.log("Client Email: " + process.env.FIREBASE_CLIENT_EMAIL);
-  console.log("Project ID: " + process.env.FIREBASE_PROJECT_ID);
-  console.log("Private Key: " + process.env.FIREBASE_PRIVATE_KEY);
 
   return firebaseApp!;
 };
