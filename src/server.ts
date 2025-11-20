@@ -25,7 +25,6 @@ class App {
   public server: any;
   public io: Server | null = null;
   private readonly PORT: number;
-
   constructor() {
     this.app = express();
     this.server = createServer(this.app);
@@ -132,6 +131,7 @@ class App {
 }
 
 // Create and start the application
+initializeFirebase();
 const app = new App();
 app.listen();
 

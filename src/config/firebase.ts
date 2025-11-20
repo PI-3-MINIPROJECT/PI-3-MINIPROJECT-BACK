@@ -1,17 +1,19 @@
 import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 
+let firebaseApp: admin.app.App | null = null;
+
 /**
  * Initialize Firebase Admin SDK
- * @returns {admin.app.App} Firebase Admin app instance
  */
 export const initializeFirebase = (): admin.app.App => {
-  // Check if Firebase is already initialized
+  if (firebaseApp) return firebaseApp!;
+
   if (admin.apps.length > 0) {
-    return admin.apps[0] as admin.app.App;
+    firebaseApp = admin.apps[0];
+    return firebaseApp!;
   }
 
-  // Initialize Firebase Admin SDK
   const serviceAccount = {
     projectId: process.env.FIREBASE_PROJECT_ID,
     privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
@@ -22,26 +24,31 @@ export const initializeFirebase = (): admin.app.App => {
     throw new Error('Missing Firebase configuration. Please check your .env file.');
   }
 
-  const app = admin.initializeApp({
+  firebaseApp = admin.initializeApp({
     credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   });
 
-  return app;
+  console.log("Bucket: " + process.env.FIREBASE_STORAGE_BUCKET);
+  console.log("Client Email: " + process.env.FIREBASE_CLIENT_EMAIL);
+  console.log("Project ID: " + process.env.FIREBASE_PROJECT_ID);
+  console.log("Private Key: " + process.env.FIREBASE_PRIVATE_KEY);
+
+  return firebaseApp!;
 };
 
 /**
- * Get Firestore database instance
- * @returns {FirebaseFirestore.Firestore} Firestore instance
- */
-export const getFirestoreInstance = (): FirebaseFirestore.Firestore => {
-  return getFirestore();
-};
-
-/**
- * Get Firebase Auth instance
- * @returns {admin.auth.Auth} Firebase Auth instance
+ * Always return auth instance from the initialized app
  */
 export const getAuthInstance = (): admin.auth.Auth => {
-  return admin.auth();
+  const app = initializeFirebase();
+  return admin.auth(app);
 };
 
+/**
+ * Always return Firestore instance from the initialized app
+ */
+export const getFirestoreInstance = (): FirebaseFirestore.Firestore => {
+  const app = initializeFirebase();
+  return getFirestore(app);
+};

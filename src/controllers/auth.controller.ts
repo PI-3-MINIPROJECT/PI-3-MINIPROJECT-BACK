@@ -45,12 +45,14 @@ export const register = async (
       },
     });
   } catch (error: any) {
+    console.error("🔥 Firebase error:", error);
+
     if (error.code === 'auth/email-already-exists') {
-      next(createError('Email already registered', 409));
-    } else {
-      next(createError('Error registering user', 500));
+      return next(createError('Email already registered', 409));
     }
-  }
+
+    return next(createError(error.message || 'Error registering user', 500));
+}
 };
 
 /**
@@ -65,19 +67,82 @@ export const login = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password, idToken } = req.body as {
+      email?: string;
+      password?: string;
+      idToken?: string;
+    };
 
-    // Note: Firebase Admin SDK doesn't have a login method
-    // Authentication should be handled on the client side with Firebase Auth
-    // This endpoint can be used for validation or custom token generation if needed
-    
-    res.status(200).json({
-      success: true,
-      message: 'Login should be handled on client side with Firebase Auth',
-      note: 'Use Firebase Auth SDK on client to authenticate and get ID token',
-    });
+    const auth = getAuthInstance();
+
+    // Preferred: client provides an ID token — verify it server-side
+    if (typeof idToken === 'string' && idToken.trim()) {
+      try {
+        const decoded = await auth.verifyIdToken(idToken);
+        const userRecord = await auth.getUser(decoded.uid);
+
+        res.status(200).json({
+          success: true,
+          message: 'Token verified',
+          data: {
+            uid: userRecord.uid,
+            email: userRecord.email,
+            name: userRecord.displayName,
+          },
+        });
+        return;
+      } catch (err: any) {
+        // token invalid / expired
+        return next(createError('Invalid or expired ID token', 401));
+      }
+    }
+
+    // Fallback: server-side email/password sign-in via Firebase REST API
+    if (typeof email === 'string' && typeof password === 'string') {
+      const apiKey = process.env.FIREBASE_API_KEY;
+      if (!apiKey) return next(createError('Server missing FIREBASE_API_KEY', 500));
+
+      const resp = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            returnSecureToken: true,
+          }),
+        }
+      );
+
+      const data: any = await resp.json().catch(() => ({}));
+
+      if (!resp.ok) {
+        const errMsg: string = data?.error?.message || 'Authentication failed';
+        const authErrors = ['EMAIL_NOT_FOUND', 'INVALID_PASSWORD', 'USER_DISABLED'];
+        const status = authErrors.includes(errMsg) ? 401 : 400;
+        return next(createError(errMsg, status));
+      }
+
+      // Successful sign-in: return tokens (client should store securely)
+      res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          uid: data.localId,
+          email: data.email,
+          idToken: data.idToken,
+          refreshToken: data.refreshToken,
+          expiresIn: data.expiresIn,
+        },
+      });
+      return;
+    }
+
+    return next(createError('Provide idToken or email and password', 400));
   } catch (error: any) {
-    next(createError('Error during login', 500));
+    console.error('Login error:', error);
+    return next(createError(error?.message || 'Error during login', 500));
   }
 };
 
@@ -87,23 +152,56 @@ export const login = async (
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
  */
+// ...existing code...
 export const logout = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    // Logout is typically handled on the client side
-    // This endpoint can be used for server-side cleanup if needed
-    
+    const { idToken, uid } = req.body as { idToken?: string; uid?: string };
+    const auth = getAuthInstance();
+
+    // Determine target UID: prefer explicit uid, otherwise verify provided idToken
+    let targetUid = uid;
+    if (!targetUid) {
+      if (typeof idToken !== 'string' || !idToken.trim()) {
+        return next(createError('Provide idToken or uid to logout', 400));
+      }
+      try {
+        const decoded = await auth.verifyIdToken(idToken);
+        targetUid = decoded.uid;
+      } catch (err: any) {
+        return next(createError('Invalid or expired ID token', 401));
+      }
+    }
+
+    // Revoke refresh tokens so existing sessions are invalidated
+    await auth.revokeRefreshTokens(targetUid);
+
+    // Optionally clear session cookie if your app uses one
+    try {
+      res.clearCookie && res.clearCookie('session'); // no-op if not used
+    } catch {}
+
+    const userRecord = await auth.getUser(targetUid);
+
     res.status(200).json({
       success: true,
-      message: 'Logout successful',
+      message: 'Logout successful — refresh tokens revoked',
+      data: {
+        uid: userRecord.uid,
+        email: userRecord.email,
+        // tokensValidAfterTime is a string timestamp set when tokens were revoked
+        tokensValidAfterTime: userRecord.tokensValidAfterTime,
+      },
     });
   } catch (error: any) {
-    next(createError('Error during logout', 500));
+    console.error('Logout error:', error);
+    return next(createError(error?.message || 'Error during logout', 500));
   }
 };
+// ...existing code...
 
 /**
  * Request password reset
