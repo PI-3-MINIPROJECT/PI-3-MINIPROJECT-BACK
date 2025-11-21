@@ -14,9 +14,28 @@ const router = Router();
 router.post(
   '/register',
   [
-    body('email').isEmail().normalizeEmail(),
-    body('password').isLength({ min: 6 }),
-    body('name').trim().notEmpty(),
+    body('email')
+      .isEmail()
+      .normalizeEmail()
+      .withMessage('Debe proporcionar un correo electrónico válido'),
+    body('password')
+      .isLength({ min: 6 })
+      .withMessage('La contraseña debe tener al menos 6 caracteres'),
+    body('name')
+      .trim()
+      .notEmpty()
+      .withMessage('Los nombres son obligatorios')
+      .isLength({ min: 2, max: 50 })
+      .withMessage('Los nombres deben tener entre 2 y 50 caracteres'),
+    body('last_name')
+      .trim()
+      .notEmpty()
+      .withMessage('Los apellidos son obligatorios')
+      .isLength({ min: 2, max: 50 })
+      .withMessage('Los apellidos deben tener entre 2 y 50 caracteres'),
+    body('age')
+      .isInt({ min: 1, max: 120 })
+      .withMessage('La edad debe ser un número entre 1 y 120'),
   ],
   validateRequest,
   authController.register
@@ -24,14 +43,19 @@ router.post(
 
 /**
  * @route   POST /api/auth/login
- * @desc    Login user
+ * @desc    Login user with email and password (creates session cookie)
  * @access  Public
  */
 router.post(
   '/login',
   [
-    body('email').isEmail().normalizeEmail(),
-    body('password').notEmpty(),
+    body('email')
+      .isEmail()
+      .normalizeEmail()
+      .withMessage('Debe proporcionar un correo electrónico válido'),
+    body('password')
+      .notEmpty()
+      .withMessage('La contraseña es requerida'),
   ],
   validateRequest,
   authController.login
@@ -39,7 +63,7 @@ router.post(
 
 /**
  * @route   POST /api/auth/logout
- * @desc    Logout user
+ * @desc    Logout user (clears session cookie)
  * @access  Private
  */
 router.post('/logout', authenticate, authController.logout);
@@ -61,14 +85,14 @@ router.post(
  * @desc    OAuth login with Google
  * @access  Public
  */
-router.post('/oauth/google', authController.googleOAuth);
+router.get('/oauth/google', authController.googleOAuth);
 
 /**
  * @route   POST /api/auth/oauth/github
  * @desc    OAuth login with GitHub
  * @access  Public
  */
-router.post('/oauth/github', authController.githubOAuth);
+router.post('/oauth/github', authController.facebookOAuth);
 
 export default router;
 
