@@ -18,7 +18,7 @@ declare global {
 }
 
 /**
- * Authentication middleware to verify Firebase ID tokens
+ * Authentication middleware to verify session cookies
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
@@ -29,31 +29,35 @@ export const authenticate = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const authHeader = req.headers.authorization;
+    // Obtener la session cookie
+    const sessionCookie = req.cookies.session;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw createError('No authorization token provided', 401);
+    if (!sessionCookie) {
+      throw createError('No hay sesión activa. Por favor inicia sesión.', 401);
     }
 
-    const idToken = authHeader.split('Bearer ')[1];
     const auth = getAuthInstance();
     
-    // Verify the ID token
-    const decodedToken = await auth.verifyIdToken(idToken);
+    // Verificar la session cookie
+    const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
     
-    // Attach user information to request
+    // Adjuntar información del usuario al request
     req.user = {
-      uid: decodedToken.uid,
-      email: decodedToken.email,
-      name: decodedToken.name,
+      uid: decodedClaims.uid,
+      email: decodedClaims.email,
+      name: decodedClaims.name,
     };
 
     next();
   } catch (error: any) {
     if (error.statusCode) {
       next(error);
+    } else if (error.code === 'auth/session-cookie-expired') {
+      next(createError('Sesión expirada. Por favor inicia sesión nuevamente.', 401));
+    } else if (error.code === 'auth/session-cookie-revoked') {
+      next(createError('Sesión revocada. Por favor inicia sesión nuevamente.', 401));
     } else {
-      next(createError('Invalid or expired token', 401));
+      next(createError('Sesión inválida o expirada', 401));
     }
   }
 };

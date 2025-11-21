@@ -2,6 +2,7 @@ services:
   - type: web
     name: videoconference-platform-backend
     env: node
+    region: oregon
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
@@ -11,14 +12,28 @@ services:
         value: 10000
       - key: CORS_ORIGIN
         sync: false
+      # Firebase Admin SDK (Backend)
       - key: FIREBASE_PROJECT_ID
         sync: false
       - key: FIREBASE_PRIVATE_KEY
         sync: false
       - key: FIREBASE_CLIENT_EMAIL
         sync: false
+      # Firebase Web SDK (Para autenticación)
+      - key: FIREBASE_API_KEY
+        sync: false
+      - key: FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: FIREBASE_APP_ID
+        sync: false
+      # JWT Secret (opcional, si lo usas)
       - key: JWT_SECRET
         sync: false
+      # STUN Servers para WebRTC
       - key: STUN_SERVER_1
         value: stun:stun1.l.google.com:19302
       - key: STUN_SERVER_2

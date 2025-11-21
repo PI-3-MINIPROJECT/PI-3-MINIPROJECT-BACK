@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { initializeFirebase } from './config/firebase';
 import { initializeSocketIO } from './config/socket';
@@ -25,7 +26,6 @@ class App {
   public server: any;
   public io: Server | null = null;
   private readonly PORT: number;
-
   constructor() {
     this.app = express();
     this.server = createServer(this.app);
@@ -50,9 +50,12 @@ class App {
     this.app.use(
       cors({
         origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-        credentials: true,
+        credentials: true, // Permitir envío de cookies
       })
     );
+
+    // Cookie parser
+    this.app.use(cookieParser());
 
     // Body parser
     this.app.use(express.json());
@@ -132,6 +135,7 @@ class App {
 }
 
 // Create and start the application
+initializeFirebase();
 const app = new App();
 app.listen();
 
