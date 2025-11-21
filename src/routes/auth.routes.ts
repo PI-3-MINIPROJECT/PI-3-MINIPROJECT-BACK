@@ -81,6 +81,25 @@ router.post(
 );
 
 /**
+ * @route   POST /api/auth/confirm-password-reset
+ * @desc    Confirm password reset with OOB code
+ * @access  Public
+ */
+router.post(
+  '/confirm-password-reset',
+  [
+    body('oobCode')
+      .notEmpty()
+      .withMessage('El código de verificación es requerido'),
+    body('newPassword')
+      .isLength({ min: 6 })
+      .withMessage('La nueva contraseña debe tener al menos 6 caracteres'),
+  ],
+  validateRequest,
+  authController.confirmPasswordReset
+);
+
+/**
  * @route   PUT /api/auth/update-password
  * @desc    Update user password
  * @access  Private
