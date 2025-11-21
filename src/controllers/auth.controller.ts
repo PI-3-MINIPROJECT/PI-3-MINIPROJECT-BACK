@@ -246,25 +246,133 @@ export const resetPassword = async (
   try {
     const { email } = req.body;
 
-    const auth = getAuthInstance();
-    
-    // Generate password reset link
-    const link = await auth.generatePasswordResetLink(email);
+    const apiKey = process.env.FIREBASE_API_KEY;
 
-    // In production, send this link via email
-    // For now, we'll return it (remove in production)
+    if (!apiKey) {
+      return next(createError('Configuración del servidor incorrecta', 500));
+    }
+
+    // Usar Firebase REST API para enviar email de reset
+    const resetResp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestType: 'PASSWORD_RESET',
+          email: email,
+        }),
+      }
+    );
+
+    const resetData: any = await resetResp.json().catch(() => ({}));
+
+    if (!resetResp.ok) {
+      const errMsg: string = resetData?.error?.message || 'Error al enviar email';
+      let friendlyMessage = 'Error al enviar el email de recuperación';
+      
+      if (errMsg === 'EMAIL_NOT_FOUND') {
+        friendlyMessage = 'No existe una cuenta con este correo electrónico';
+      }
+
+      return next(createError(friendlyMessage, 400));
+    }
+
     res.status(200).json({
       success: true,
-      message: 'Password reset link generated',
-      // Remove this in production - send via email instead
-      resetLink: link,
+      message: 'Se ha enviado un enlace de recuperación a tu correo electrónico',
+      data: {
+        email: resetData.email,
+      },
     });
   } catch (error: any) {
-    if (error.code === 'auth/user-not-found') {
-      next(createError('User not found', 404));
-    } else {
-      next(createError('Error generating reset link', 500));
+    console.error('Error en resetPassword:', error);
+    return next(createError(error?.message || 'Error al procesar la solicitud de recuperación', 500));
+  }
+};
+
+/**
+ * Confirm password reset with OOB code from email
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @param {NextFunction} next - Express next function
+ */
+export const confirmPasswordReset = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { oobCode, newPassword } = req.body;
+
+    const apiKey = process.env.FIREBASE_API_KEY;
+
+    if (!apiKey) {
+      return next(createError('Configuración del servidor incorrecta', 500));
     }
+
+    // Primero verificar que el código OOB es válido
+    const verifyResp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          oobCode: oobCode,
+          newPassword: newPassword,
+        }),
+      }
+    );
+
+    const verifyData: any = await verifyResp.json().catch(() => ({}));
+
+    if (!verifyResp.ok) {
+      const errMsg: string = verifyData?.error?.message || 'Código inválido';
+      let friendlyMessage = 'El enlace de recuperación es inválido o ha expirado';
+      
+      if (errMsg === 'INVALID_OOB_CODE') {
+        friendlyMessage = 'El código de recuperación es inválido';
+      } else if (errMsg === 'EXPIRED_OOB_CODE') {
+        friendlyMessage = 'El enlace de recuperación ha expirado';
+      } else if (errMsg === 'WEAK_PASSWORD') {
+        friendlyMessage = 'La contraseña debe tener al menos 6 caracteres';
+      }
+
+      return next(createError(friendlyMessage, 400));
+    }
+
+    // Actualizar timestamp en Firestore si el usuario existe
+    try {
+      const db = getFirestoreInstance();
+      const email = verifyData.email;
+      
+      if (email) {
+        // Buscar usuario por email en Firestore
+        const usersRef = db.collection('users');
+        const snapshot = await usersRef.where('email', '==', email).get();
+        
+        if (!snapshot.empty) {
+          const userDoc = snapshot.docs[0];
+          await userDoc.ref.update({
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (firestoreError) {
+      // No fallar si hay error en Firestore, la contraseña ya se cambió en Auth
+      console.warn('Error updating Firestore timestamp:', firestoreError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Contraseña restablecida exitosamente',
+      data: {
+        email: verifyData.email,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error en confirmPasswordReset:', error);
+    return next(createError(error?.message || 'Error al restablecer la contraseña', 500));
   }
 };
 
