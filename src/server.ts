@@ -46,11 +46,35 @@ class App {
     // Security middleware
     this.app.use(helmet());
     
-    // CORS configuration
+    // CORS configuration - Soporta múltiples orígenes
+    const corsOriginEnv = process.env.CORS_ORIGIN || 'http://localhost:5173';
+    
+    // Parsear múltiples orígenes separados por coma
+    const allowedOrigins = corsOriginEnv === '*' 
+      ? '*' 
+      : corsOriginEnv.split(',').map(origin => origin.trim());
+    
     this.app.use(
       cors({
-        origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-        credentials: true, // Permitir envío de cookies
+        origin: (origin, callback) => {
+          // Si es *, permitir cualquier origen (sin credentials)
+          if (allowedOrigins === '*') {
+            return callback(null, true);
+          }
+          
+          // Permitir requests sin origin (Postman, apps móviles, mismo origen)
+          if (!origin) {
+            return callback(null, true);
+          }
+          
+          // Verificar si el origin está en la lista permitida
+          if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+          } else {
+            callback(new Error(`Origin ${origin} no permitido por CORS`));
+          }
+        },
+        credentials: allowedOrigins === '*' ? false : true, // No credentials con *
       })
     );
 
