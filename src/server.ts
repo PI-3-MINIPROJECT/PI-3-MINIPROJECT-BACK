@@ -89,7 +89,7 @@ class App {
    */
   private initializeRoutes(): void {
     // Health check endpoint
-    this.app.get('/health', (req, res) => {
+    this.app.get('/health', (_req, res) => {
       res.status(200).json({
         status: 'ok',
         timestamp: new Date().toISOString(),

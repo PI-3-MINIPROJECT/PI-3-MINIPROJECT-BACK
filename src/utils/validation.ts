@@ -10,7 +10,7 @@ import { createError } from '../middlewares/errorHandler';
  */
 export const validateRequest = (
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): void => {
   const errors = validationResult(req);

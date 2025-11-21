@@ -41,21 +41,21 @@ export interface ChatMessage {
  */
 export interface WebRTCOffer {
   meetingId: string;
-  offer: RTCSessionDescriptionInit;
+  offer: any; // RTCSessionDescriptionInit
   targetUserId: string;
   fromUserId: string;
 }
 
 export interface WebRTCAnswer {
   meetingId: string;
-  answer: RTCSessionDescriptionInit;
+  answer: any; // RTCSessionDescriptionInit
   targetUserId: string;
   fromUserId: string;
 }
 
 export interface WebRTCIceCandidate {
   meetingId: string;
-  candidate: RTCIceCandidateInit;
+  candidate: any; // RTCIceCandidateInit
   targetUserId: string;
   fromUserId: string;
 }
