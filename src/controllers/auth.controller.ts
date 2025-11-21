@@ -540,6 +540,8 @@ export const googleOAuth = async (
 
     // Redirect to frontend (could attach a success flag)
     res.redirect(frontend);
+
+    res.cookie('session', sessionCookie, cookieOptions);
     return;
   } catch (error: any) {
     console.error('Google OAuth error:', error);
