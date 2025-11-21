@@ -535,13 +535,11 @@ export const googleOAuth = async (
       path: '/',
     };
 
-    // Establecer la cookie de sesión
+    // Establecer la cookie de sesión ANTES del redirect
     res.cookie('session', sessionCookie, cookieOptions);
 
-    // Redirect to frontend (could attach a success flag)
-    res.redirect(frontend);
-
-    res.cookie('session', sessionCookie, cookieOptions);
+    // Redirect to frontend con parámetro de éxito
+    res.redirect(`${frontend}/login?oauth_success=true`);
     return;
   } catch (error: any) {
     console.error('Google OAuth error:', error);
