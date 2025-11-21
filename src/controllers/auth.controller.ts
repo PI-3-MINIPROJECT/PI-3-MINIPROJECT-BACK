@@ -153,7 +153,7 @@ export const login = async (
       maxAge: expiresIn,
       httpOnly: true, // No accesible desde JavaScript (protege contra XSS)
       secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción
-      sameSite: 'lax' as const, // Protección CSRF
+      sameSite: process.env.NODE_ENV === 'production' ? ('none' as const) : ('lax' as const), // Cross-site cookies
       path: '/',
     };
 
@@ -209,7 +209,7 @@ export const logout = async (
     res.clearCookie('session', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       path: '/',
     });
 
@@ -224,7 +224,7 @@ export const logout = async (
     res.clearCookie('session', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       path: '/',
     });
 
@@ -423,7 +423,7 @@ export const googleOAuth = async (
       maxAge: expiresIn,
       httpOnly: true, // No accesible desde JavaScript (protege contra XSS)
       secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción
-      sameSite: 'lax' as const, // Protección CSRF
+      sameSite: process.env.NODE_ENV === 'production' ? ('none' as const) : ('lax' as const), // Cross-site cookies
       path: '/',
     };
 
