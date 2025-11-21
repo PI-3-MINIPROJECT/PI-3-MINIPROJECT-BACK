@@ -473,3 +473,94 @@ export const facebookOAuth = async (
   }
 };
 
+/**
+ * Update user password
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @param {NextFunction} next - Express next function
+ */
+export const updatePassword = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = (req as any).user?.uid;
+
+    if (!userId) {
+      return next(createError('Usuario no autenticado', 401));
+    }
+
+    const auth = getAuthInstance();
+    const db = getFirestoreInstance();
+    const apiKey = process.env.FIREBASE_API_KEY;
+
+    if (!apiKey) {
+      return next(createError('Configuración del servidor incorrecta', 500));
+    }
+    
+    // Obtener datos del usuario de Firestore para verificar email
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    
+    if (!userData || !userData.email) {
+      return next(createError('Usuario no encontrado', 404));
+    }
+
+    // Verificar contraseña actual autenticando con Firebase
+    const verifyResp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userData.email,
+          password: currentPassword,
+          returnSecureToken: true,
+        }),
+      }
+    );
+
+    const verifyData: any = await verifyResp.json().catch(() => ({}));
+
+    if (!verifyResp.ok) {
+      const errMsg: string = verifyData?.error?.message || 'Contraseña incorrecta';
+      let friendlyMessage = 'La contraseña actual es incorrecta';
+      
+      if (errMsg === 'INVALID_PASSWORD' || errMsg === 'INVALID_LOGIN_CREDENTIALS') {
+        friendlyMessage = 'La contraseña actual es incorrecta';
+      }
+
+      return next(createError(friendlyMessage, 400));
+    }
+
+    // Actualizar contraseña en Firebase Auth
+    await auth.updateUser(userId, {
+      password: newPassword,
+    });
+
+    // Actualizar timestamp en Firestore
+    await db.collection('users').doc(userId).update({
+      updatedAt: new Date().toISOString(),
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Contraseña actualizada exitosamente',
+    });
+  } catch (error: any) {
+    console.error('Error al actualizar contraseña:', error);
+    
+    if (error.code === 'auth/user-not-found') {
+      return next(createError('Usuario no encontrado', 404));
+    }
+    
+    if (error.code === 'auth/weak-password') {
+      return next(createError('La nueva contraseña debe tener al menos 6 caracteres', 400));
+    }
+
+    return next(createError(error?.message || 'Error al actualizar la contraseña', 500));
+  }
+};
+
