@@ -1,6 +1,5 @@
 import { Server as HTTPServer } from 'http';
 import { Server, Socket } from 'socket.io';
-import { DefaultEventsMap } from 'socket.io/dist/typed-events';
 
 /**
  * Initialize Socket.IO server
