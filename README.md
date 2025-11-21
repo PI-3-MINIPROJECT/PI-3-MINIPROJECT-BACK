@@ -104,6 +104,7 @@ Back/
 - `POST /api/auth/register` - Registrar nuevo usuario
 - `POST /api/auth/login` - Iniciar sesión
 - `POST /api/auth/logout` - Cerrar sesión
+- `PUT /api/auth/update-password` - Actualizar contraseña del usuario
 - `POST /api/auth/reset-password` - Solicitar recuperación de contraseña
 - `POST /api/auth/oauth/google` - OAuth con Google
 - `POST /api/auth/oauth/github` - OAuth con GitHub

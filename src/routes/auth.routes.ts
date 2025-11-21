@@ -81,6 +81,35 @@ router.post(
 );
 
 /**
+ * @route   PUT /api/auth/update-password
+ * @desc    Update user password
+ * @access  Private
+ */
+router.put(
+  '/update-password',
+  authenticate,
+  [
+    body('currentPassword')
+      .notEmpty()
+      .withMessage('La contraseña actual es requerida'),
+    body('newPassword')
+      .isLength({ min: 6 })
+      .withMessage('La nueva contraseña debe tener al menos 6 caracteres'),
+    body('confirmPassword')
+      .notEmpty()
+      .withMessage('La confirmación de contraseña es requerida')
+      .custom((value, { req }) => {
+        if (value !== req.body.newPassword) {
+          throw new Error('Las contraseñas no coinciden');
+        }
+        return true;
+      }),
+  ],
+  validateRequest,
+  authController.updatePassword
+);
+
+/**
  * @route   POST /api/auth/oauth/google
  * @desc    OAuth login with Google
  * @access  Public
