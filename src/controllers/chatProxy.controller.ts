@@ -15,7 +15,7 @@ async function proxyToChatBackend(
   path: string,
   method: string = 'GET',
   body?: any,
-  req?: Request
+  _req?: Request
 ): Promise<any> {
   try {
     const options: RequestInit = {
@@ -32,8 +32,8 @@ async function proxyToChatBackend(
     const response = await fetch(`${CHAT_BACKEND_URL}${path}`, options);
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Error from Chat Backend');
+      const errorData: any = await response.json();
+      throw new Error(errorData.message || 'Error from Chat Backend');
     }
 
     return await response.json();
