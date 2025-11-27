@@ -137,10 +137,10 @@ router.get('/oauth/google', authController.googleOAuth);
 
 /**
  * @route   POST /api/auth/oauth/github
- * @desc    OAuth login with GitHub
+ * @desc    OAuth login with GitHub (receives Firebase ID token)
  * @access  Public
  */
-router.post('/oauth/github', authController.facebookOAuth);
+router.get('/oauth/github', authController.githubOAuth);
 
 export default router;
 
