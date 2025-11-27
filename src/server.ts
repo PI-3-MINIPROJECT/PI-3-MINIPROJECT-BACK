@@ -13,6 +13,7 @@ import { notFoundHandler } from './middlewares/notFoundHandler';
 import userRoutes from './routes/user.routes';
 import meetingRoutes from './routes/meeting.routes';
 import authRoutes from './routes/auth.routes';
+import chatProxyRoutes from './routes/chatProxy.routes';
 
 // Load environment variables
 dotenv.config();
@@ -124,7 +125,8 @@ class App {
     // API routes
     this.app.use('/api/auth', authRoutes);
     this.app.use('/api/users', userRoutes);
-    this.app.use('/api/meetings', meetingRoutes);
+    // Meetings proxy to Chat Backend (API Gateway)
+    this.app.use('/api/meetings', chatProxyRoutes);
   }
 
   /**
