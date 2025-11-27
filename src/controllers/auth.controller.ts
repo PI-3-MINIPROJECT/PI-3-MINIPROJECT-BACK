@@ -554,26 +554,200 @@ export const googleOAuth = async (
 };
 
 /**
- * OAuth login with GitHub
+ * OAuth login with GitHub (Server-side flow - same as Google)
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
  */
-export const facebookOAuth = async (
-  _req: Request,
+export const githubOAuth = async (
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
+  /**
+   * Server-side GitHub OAuth flow (same pattern as Google):
+   * - If no "code" query param: redirect user to GitHub authorization page
+   * - If "code" present: exchange code for access token, get GitHub profile,
+   *   create or fetch Firebase user, mint Firebase custom token, exchange for idToken,
+   *   create session cookie and set it, then redirect to frontend
+   *
+   * Required env:
+   * - GITHUB_CLIENT_ID
+   * - GITHUB_CLIENT_SECRET
+   * - GITHUB_CALLBACK_URL (this endpoint URL)
+   * - FIREBASE_API_KEY
+   * - FRONTEND_URL (optional; where to redirect after success/failure)
+   */
   try {
-    // OAuth is typically handled on the client side with Firebase Auth
-    // This endpoint can be used for server-side verification or user creation
-    
-    res.status(200).json({
-      success: true,
-      message: 'Facebook OAuth should be handled on client side with Firebase Auth',
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+    const redirectUri = process.env.GITHUB_CALLBACK_URL;
+    const apiKey = process.env.FIREBASE_API_KEY;
+    const frontend = process.env.FRONTEND_URL || '/';
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      return next(createError('GitHub OAuth not configured on server', 500));
+    }
+
+    // Step 1: If no code -> redirect to GitHub authorization page
+    const code = (req.query.code as string) || undefined;
+    if (!code) {
+      const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read:user user:email`;
+      res.redirect(githubAuthUrl);
+      return;
+    }
+
+    // Step 2: Exchange code for access token
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: redirectUri,
+      }),
     });
+
+    const tokenData: any = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
+
+    if (!accessToken) {
+      console.error('Failed to get GitHub access token:', tokenData);
+      return next(createError('Failed to obtain access token from GitHub', 500));
+    }
+
+    // Step 3: Get GitHub user profile
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    const githubUser: any = await userResponse.json();
+    
+    if (!githubUser.id) {
+      return next(createError('Failed to get GitHub user profile', 500));
+    }
+
+    // Get user email (GitHub may require separate API call for email)
+    let email = githubUser.email;
+    if (!email) {
+      const emailResponse = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+        },
+      });
+      const emails: any[] = await emailResponse.json();
+      const primaryEmail = emails.find(e => e.primary && e.verified);
+      email = primaryEmail?.email || emails[0]?.email;
+    }
+
+    if (!email) {
+      return next(createError('No email found in GitHub account', 400));
+    }
+
+    const githubId = githubUser.id.toString();
+    const displayName = githubUser.name || githubUser.login;
+    const photoURL = githubUser.avatar_url;
+    const uid = `github:${githubId}`;
+
+    const auth = getAuthInstance();
+    const db = getFirestoreInstance();
+
+    // Step 4: Create or get Firebase user
+    try {
+      await auth.getUser(uid);
+    } catch (err: any) {
+      if (err?.code === 'auth/user-not-found') {
+        try {
+          await auth.createUser({
+            uid,
+            email,
+            displayName,
+            photoURL,
+            emailVerified: true,
+          });
+
+          // Create user document in Firestore
+          await db.collection('users').doc(uid).set({
+            uid,
+            email,
+            name: displayName,
+            last_name: '',
+            age: null,
+            provider: 'github',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (createErr: any) {
+          try {
+            await auth.getUserByEmail(email);
+          } catch {
+            return next(createError('Error creating or fetching Firebase user', 500));
+          }
+        }
+      } else {
+        return next(createError('Error fetching Firebase user', 500));
+      }
+    }
+
+    // Step 5: Create Firebase custom token
+    const customToken = await auth.createCustomToken(uid);
+
+    if (!apiKey) {
+      return next(createError('Missing FIREBASE_API_KEY for token exchange', 500));
+    }
+
+    // Step 6: Exchange custom token for Firebase idToken
+    const signInResp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+      }
+    );
+
+    const signInData: any = await signInResp.json().catch(() => ({}));
+    if (!signInResp.ok || !signInData.idToken) {
+      console.error('Failed exchange custom token:', signInData);
+      return next(createError('Failed to sign in with custom token', 500));
+    }
+
+    const firebaseIdToken = signInData.idToken;
+
+    // Step 7: Create session cookie
+    const expiresIn = Number(process.env.SESSION_COOKIE_EXPIRES_IN_MS) || 5 * 24 * 60 * 60 * 1000;
+    const sessionCookie = await auth.createSessionCookie(firebaseIdToken, { expiresIn });
+
+    const cookieOptions = {
+      maxAge: expiresIn,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? ('none' as const) : ('lax' as const),
+      path: '/',
+    };
+
+    // Set session cookie
+    res.cookie('session', sessionCookie, cookieOptions);
+
+    // Step 8: Redirect to frontend with success
+    res.redirect(`${frontend}/login?oauth_success=true`);
+    return;
   } catch (error: any) {
-    next(createError('Error during Facebook OAuth', 500));
+    console.error('GitHub OAuth error:', error);
+    const frontend = process.env.FRONTEND_URL || '/';
+    try {
+      res.redirect(`${frontend}?oauth_error=1`);
+    } catch {
+      return next(createError(error?.message || 'Error during GitHub OAuth', 500));
+    }
   }
 };
 
