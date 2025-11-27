@@ -643,7 +643,8 @@ export const githubOAuth = async (
           'Accept': 'application/json',
         },
       });
-      const emails: any[] = await emailResponse.json();
+      const emailsData = await emailResponse.json();
+      const emails: any[] = Array.isArray(emailsData) ? emailsData : [];
       const primaryEmail = emails.find(e => e.primary && e.verified);
       email = primaryEmail?.email || emails[0]?.email;
     }
