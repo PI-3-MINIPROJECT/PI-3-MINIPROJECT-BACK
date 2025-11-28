@@ -451,48 +451,72 @@ export const googleOAuth = async (
     const email = payload.email;
     const displayName = payload.name;
     const photoURL = payload.picture;
-    const uid = `google:${googleId}`;
+    let uid = `google:${googleId}`;
 
     const auth = getAuthInstance();
     const db = getFirestoreInstance();
 
     // Create or get firebase user
+    // First, try to find existing user by email (email is unique key)
+    let existingUser;
     try {
-      await auth.getUser(uid);
-    } catch (err: any) {
-      // If user not found, try to create; on failure try to get by email
-      if (err?.code === 'auth/user-not-found') {
-        try {
-          // Prefer to create a stable UID based on provider to avoid collisions
-          await auth.createUser({
-            uid,
-            email,
-            displayName,
-            photoURL,
-            emailVerified: true,
-          });
-
-          // create a basic user document in Firestore
-          await db.collection('users').doc(uid).set({
-            uid,
-            email,
-            name: displayName,
-            last_name: '',
-            age: null,
-            provider: 'google',
-            createdAt: new Date().toISOString(),
+      existingUser = await auth.getUserByEmail(email);
+      
+      // User exists with this email - use existing account
+      uid = existingUser.uid;
+      
+      // Update Firestore to track multiple providers
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const providers = userData?.providers || [userData?.provider];
+        if (!providers.includes('google')) {
+          await db.collection('users').doc(uid).update({
+            providers: [...providers, 'google'],
             updatedAt: new Date().toISOString(),
           });
-        } catch (createErr: any) {
-          // If UID already exists or other issue, try to fallback to getUserByEmail
-          try {
-            await auth.getUserByEmail(email);
-          } catch {
-            return next(createError('Error creating or fetching Firebase user', 500));
+        }
+      }
+    } catch (emailErr: any) {
+      // No user with this email, proceed to create new user
+      if (emailErr?.code === 'auth/user-not-found') {
+        try {
+          // Check if our provider-specific UID exists
+          await auth.getUser(uid);
+        } catch (uidErr: any) {
+          // UID doesn't exist, create new user
+          if (uidErr?.code === 'auth/user-not-found') {
+            try {
+              await auth.createUser({
+                uid,
+                email,
+                displayName,
+                photoURL,
+                emailVerified: true,
+              });
+
+              // create a basic user document in Firestore
+              await db.collection('users').doc(uid).set({
+                uid,
+                email,
+                name: displayName,
+                last_name: '',
+                age: null,
+                provider: 'google',
+                providers: ['google'],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              });
+            } catch (createErr: any) {
+              console.error('Error creating user:', createErr);
+              return next(createError('Error creating Firebase user', 500));
+            }
+          } else {
+            return next(createError('Error checking Firebase user', 500));
           }
         }
       } else {
-        return next(createError('Error fetching Firebase user', 500));
+        return next(createError('Error checking user by email', 500));
       }
     }
 
@@ -656,45 +680,72 @@ export const githubOAuth = async (
     const githubId = githubUser.id.toString();
     const displayName = githubUser.name || githubUser.login;
     const photoURL = githubUser.avatar_url;
-    const uid = `github:${githubId}`;
+    let uid = `github:${githubId}`;
 
     const auth = getAuthInstance();
     const db = getFirestoreInstance();
 
     // Step 4: Create or get Firebase user
+    // First, try to find existing user by email (email is unique key)
+    let existingUser;
     try {
-      await auth.getUser(uid);
-    } catch (err: any) {
-      if (err?.code === 'auth/user-not-found') {
-        try {
-          await auth.createUser({
-            uid,
-            email,
-            displayName,
-            photoURL,
-            emailVerified: true,
-          });
-
-          // Create user document in Firestore
-          await db.collection('users').doc(uid).set({
-            uid,
-            email,
-            name: displayName,
-            last_name: '',
-            age: null,
-            provider: 'github',
-            createdAt: new Date().toISOString(),
+      existingUser = await auth.getUserByEmail(email);
+      
+      // User exists with this email - use existing account
+      uid = existingUser.uid;
+      
+      // Update Firestore to track multiple providers
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const providers = userData?.providers || [userData?.provider];
+        if (!providers.includes('github')) {
+          await db.collection('users').doc(uid).update({
+            providers: [...providers, 'github'],
             updatedAt: new Date().toISOString(),
           });
-        } catch (createErr: any) {
-          try {
-            await auth.getUserByEmail(email);
-          } catch {
-            return next(createError('Error creating or fetching Firebase user', 500));
+        }
+      }
+    } catch (emailErr: any) {
+      // No user with this email, proceed to create new user
+      if (emailErr?.code === 'auth/user-not-found') {
+        try {
+          // Check if our provider-specific UID exists
+          await auth.getUser(uid);
+        } catch (uidErr: any) {
+          // UID doesn't exist, create new user
+          if (uidErr?.code === 'auth/user-not-found') {
+            try {
+              await auth.createUser({
+                uid,
+                email,
+                displayName,
+                photoURL,
+                emailVerified: true,
+              });
+
+              // Create user document in Firestore
+              await db.collection('users').doc(uid).set({
+                uid,
+                email,
+                name: displayName,
+                last_name: '',
+                age: null,
+                provider: 'github',
+                providers: ['github'],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              });
+            } catch (createErr: any) {
+              console.error('Error creating user:', createErr);
+              return next(createError('Error creating Firebase user', 500));
+            }
+          } else {
+            return next(createError('Error checking Firebase user', 500));
           }
         }
       } else {
-        return next(createError('Error fetching Firebase user', 500));
+        return next(createError('Error checking user by email', 500));
       }
     }
 
