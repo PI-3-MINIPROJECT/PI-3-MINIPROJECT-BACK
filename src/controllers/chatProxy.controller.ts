@@ -6,10 +6,11 @@ const CHAT_BACKEND_URL = process.env.CHAT_BACKEND_URL || 'http://localhost:4000'
 /**
  * Proxy request to Chat Backend
  * @param {string} path - Path to proxy to
- * @param {string} method - HTTP method
- * @param {any} body - Request body
- * @param {Request} req - Express request
+ * @param {string} [method='GET'] - HTTP method
+ * @param {any} [body] - Request body (optional)
+ * @param {Request} [_req] - Express request (optional, currently unused)
  * @returns {Promise<any>} Response from Chat Backend
+ * @throws {Error} If request to Chat Backend fails
  */
 async function proxyToChatBackend(
   path: string,

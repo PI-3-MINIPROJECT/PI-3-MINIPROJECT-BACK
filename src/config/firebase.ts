@@ -5,6 +5,8 @@ let firebaseApp: admin.app.App | null = null;
 
 /**
  * Initialize Firebase Admin SDK
+ * @returns {admin.app.App} Initialized Firebase Admin app instance
+ * @throws {Error} If Firebase configuration is missing
  */
 export const initializeFirebase = (): admin.app.App => {
   if (firebaseApp) return firebaseApp!;
@@ -34,7 +36,8 @@ export const initializeFirebase = (): admin.app.App => {
 };
 
 /**
- * Always return auth instance from the initialized app
+ * Get Firebase Auth instance from the initialized app
+ * @returns {admin.auth.Auth} Firebase Auth instance
  */
 export const getAuthInstance = (): admin.auth.Auth => {
   const app = initializeFirebase();
@@ -42,7 +45,8 @@ export const getAuthInstance = (): admin.auth.Auth => {
 };
 
 /**
- * Always return Firestore instance from the initialized app
+ * Get Firestore instance from the initialized app
+ * @returns {FirebaseFirestore.Firestore} Firestore instance
  */
 export const getFirestoreInstance = (): FirebaseFirestore.Firestore => {
   const app = initializeFirebase();

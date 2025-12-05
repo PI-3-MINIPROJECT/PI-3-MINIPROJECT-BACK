@@ -26,6 +26,11 @@ class App {
   public server: any;
   public io: Server | null = null;
   private readonly PORT: number;
+  
+  /**
+   * Create a new App instance
+   * Initializes Express app, middlewares, Firebase, routes, Socket.IO, and error handling
+   */
   constructor() {
     this.app = express();
     this.server = createServer(this.app);

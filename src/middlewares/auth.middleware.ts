@@ -4,6 +4,7 @@ import { createError } from './errorHandler';
 
 /**
  * Extend Express Request to include user information
+ * Adds user property to Express Request interface
  */
 declare global {
   namespace Express {
@@ -19,9 +20,11 @@ declare global {
 
 /**
  * Authentication middleware to verify session cookies
+ * Verifies Firebase session cookie and attaches user info to request
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
+ * @returns {Promise<void>}
  */
 export const authenticate = async (
   req: Request,

@@ -3,10 +3,12 @@ import { validationResult } from 'express-validator';
 import { createError } from '../middlewares/errorHandler';
 
 /**
- * Middleware to validate request data
+ * Middleware to validate request data using express-validator
+ * Checks validation results and passes errors to error handler if validation fails
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {NextFunction} next - Express next function
+ * @returns {void}
  */
 export const validateRequest = (
   req: Request,

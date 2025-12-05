@@ -20,7 +20,12 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
   io.on('connection', (socket: Socket) => {
     console.log(`✅ Client connected: ${socket.id}`);
 
-    // Handle joining a meeting room
+    /**
+     * Handle joining a meeting room
+     * @param {Object} data - Join meeting data
+     * @param {string} data.meetingId - Meeting ID to join
+     * @param {string} data.userId - User ID joining the meeting
+     */
     socket.on('join-meeting', (data: { meetingId: string; userId: string }) => {
       const { meetingId, userId } = data;
       socket.join(meetingId);
@@ -30,7 +35,12 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       socket.to(meetingId).emit('user-joined', { userId, socketId: socket.id });
     });
 
-    // Handle leaving a meeting room
+    /**
+     * Handle leaving a meeting room
+     * @param {Object} data - Leave meeting data
+     * @param {string} data.meetingId - Meeting ID to leave
+     * @param {string} data.userId - User ID leaving the meeting
+     */
     socket.on('leave-meeting', (data: { meetingId: string; userId: string }) => {
       const { meetingId, userId } = data;
       socket.leave(meetingId);
@@ -40,7 +50,14 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       socket.to(meetingId).emit('user-left', { userId, socketId: socket.id });
     });
 
-    // Handle chat messages
+    /**
+     * Handle chat messages
+     * @param {Object} data - Chat message data
+     * @param {string} data.meetingId - Meeting ID where message is sent
+     * @param {string} data.message - Message content
+     * @param {string} data.userId - User ID sending the message
+     * @param {string} data.userName - User name sending the message
+     */
     socket.on('chat-message', (data: { meetingId: string; message: string; userId: string; userName: string }) => {
       const { meetingId, message, userId, userName } = data;
       console.log(`💬 Chat message in meeting ${meetingId} from ${userName}`);
@@ -54,7 +71,13 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       });
     });
 
-    // Handle WebRTC signaling for audio/video
+    /**
+     * Handle WebRTC offer for audio/video connection
+     * @param {Object} data - WebRTC offer data
+     * @param {string} data.meetingId - Meeting ID
+     * @param {any} data.offer - RTCSessionDescriptionInit offer
+     * @param {string} data.targetUserId - Target user ID to send offer to
+     */
     socket.on('webrtc-offer', (data: { meetingId: string; offer: any; targetUserId: string }) => {
       socket.to(data.meetingId).emit('webrtc-offer', {
         offer: data.offer,
@@ -63,6 +86,13 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       });
     });
 
+    /**
+     * Handle WebRTC answer for audio/video connection
+     * @param {Object} data - WebRTC answer data
+     * @param {string} data.meetingId - Meeting ID
+     * @param {any} data.answer - RTCSessionDescriptionInit answer
+     * @param {string} data.targetUserId - Target user ID to send answer to
+     */
     socket.on('webrtc-answer', (data: { meetingId: string; answer: any; targetUserId: string }) => {
       socket.to(data.meetingId).emit('webrtc-answer', {
         answer: data.answer,
@@ -71,6 +101,13 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       });
     });
 
+    /**
+     * Handle WebRTC ICE candidate for audio/video connection
+     * @param {Object} data - WebRTC ICE candidate data
+     * @param {string} data.meetingId - Meeting ID
+     * @param {any} data.candidate - RTCIceCandidateInit candidate
+     * @param {string} data.targetUserId - Target user ID to send candidate to
+     */
     socket.on('webrtc-ice-candidate', (data: { meetingId: string; candidate: any; targetUserId: string }) => {
       socket.to(data.meetingId).emit('webrtc-ice-candidate', {
         candidate: data.candidate,
@@ -79,7 +116,13 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       });
     });
 
-    // Handle microphone toggle
+    /**
+     * Handle microphone toggle
+     * @param {Object} data - Microphone toggle data
+     * @param {string} data.meetingId - Meeting ID
+     * @param {string} data.userId - User ID toggling microphone
+     * @param {boolean} data.isMuted - Whether microphone is muted
+     */
     socket.on('toggle-microphone', (data: { meetingId: string; userId: string; isMuted: boolean }) => {
       socket.to(data.meetingId).emit('microphone-toggled', {
         userId: data.userId,
@@ -87,7 +130,13 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       });
     });
 
-    // Handle camera toggle
+    /**
+     * Handle camera toggle
+     * @param {Object} data - Camera toggle data
+     * @param {string} data.meetingId - Meeting ID
+     * @param {string} data.userId - User ID toggling camera
+     * @param {boolean} data.isVideoOff - Whether camera is off
+     */
     socket.on('toggle-camera', (data: { meetingId: string; userId: string; isVideoOff: boolean }) => {
       socket.to(data.meetingId).emit('camera-toggled', {
         userId: data.userId,
@@ -95,7 +144,9 @@ export const initializeSocketIO = (httpServer: HTTPServer): Server => {
       });
     });
 
-    // Handle disconnection
+    /**
+     * Handle client disconnection
+     */
     socket.on('disconnect', () => {
       console.log(`❌ Client disconnected: ${socket.id}`);
     });
